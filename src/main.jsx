@@ -1,3 +1,47 @@
+function AnalysisStep({ selectedRepo, onContinue }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [analysis, setAnalysis] = useState(null);
+
+  const analyze = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/ai/analyze-repo", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fullName: selectedRepo?.fullName, branch: selectedRepo?.defaultBranch })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "AI analysis failed.");
+      setAnalysis(data.analysis);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { if (selectedRepo) analyze(); }, [selectedRepo]);
+
+  return <>
+    <div className="iconbox"><Sparkles /></div>
+    <h2>AI project analysis</h2>
+    <p>Inspecting <b>{selectedRepo?.fullName}</b> and detecting the build configuration.</p>
+    {loading && <div className="loading-state"><Loader2 className="spin" size={25} /><p>Reading project files and analyzing with AI…</p></div>}
+    {error && <div className="error"><AlertCircle size={17} /> {error}<button className="icon-button" onClick={analyze}><RefreshCw size={15}/></button></div>}
+    {analysis && <div className="analysis">
+      <div><CheckCircle2 /> Framework: <b>{analysis.framework || "Unknown"}</b></div>
+      <div><CheckCircle2 /> Build command: <b>{analysis.buildCommand || "npm run build"}</b></div>
+      <div><CheckCircle2 /> Output: <b>{analysis.outputDirectory || "dist"}</b></div>
+      <div><CheckCircle2 /> Capacitor ready: <b>{String(analysis.capacitorReady ?? false)}</b></div>
+      <div>{analysis.summary || "Analysis completed."}</div>
+    </div>}
+    <button className="primary" disabled={loading || !analysis} onClick={onContinue}>Continue to APK configuration <ArrowRight size={18} /></button>
+  </>;
+}
+
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -172,18 +216,7 @@ function App() {
           )}
 
           {step === 2 && (
-            <>
-              <div className="iconbox"><Sparkles /></div>
-              <h2>AI project analysis</h2>
-              <p>Selected project: <b>{selectedRepo?.fullName || "your repository"}</b></p>
-              <div className="analysis">
-                <div><CheckCircle2 /> Framework detection</div>
-                <div><CheckCircle2 /> Build configuration</div>
-                <div><CheckCircle2 /> Capacitor Android wrapper</div>
-                <div><CheckCircle2 /> Required permissions</div>
-              </div>
-              <button className="primary" onClick={() => setStep(3)}>Analyze & Continue <ArrowRight size={18} /></button>
-            </>
+            <AnalysisStep selectedRepo={selectedRepo} onContinue={() => setStep(3)} />
           )}
 
           {step === 3 && (
