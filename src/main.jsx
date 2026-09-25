@@ -1,34 +1,220 @@
-import React,{useState} from 'react';
-import {createRoot} from 'react-dom/client';
-import {Github, Sparkles, Smartphone, ShieldCheck, ArrowRight, CheckCircle2, Download, Settings2, Loader2} from 'lucide-react';
-import './styles.css';
+import React, { useEffect, useMemo, useState } from "react";
+import { createRoot } from "react-dom/client";
+import {
+  Github, Sparkles, Smartphone, ShieldCheck, ArrowRight, CheckCircle2,
+  Download, Loader2, LogOut, RefreshCw, Search, ExternalLink, AlertCircle
+} from "lucide-react";
+import "./styles.css";
 
-const steps=['Connect GitHub','Select Web App','AI Analyze','Configure APK','Build & Download'];
+const steps = ["Connect GitHub", "Select Web App", "AI Analyze", "Configure APK", "Build & Download"];
 
-function App(){
- const [step,setStep]=useState(0);
- const [repo,setRepo]=useState('');
- const [appName,setAppName]=useState('My Web App');
- const [packageId,setPackageId]=useState('com.web2apk.app');
- const [building,setBuilding]=useState(false);
- const [built,setBuilt]=useState(false);
- const next=()=>setStep(s=>Math.min(4,s+1));
- const build=()=>{setBuilding(true);setTimeout(()=>{setBuilding(false);setBuilt(true);setStep(4)},1800)};
- return <div className="app">
-  <header><div className="brand"><div className="logo"><Smartphone size={22}/></div><div><b>Web2APK AI</b><span>AI Web App → Android APK</span></div></div><button className="github"><Github size={18}/> Connect GitHub</button></header>
-  <main>
-   <section className="hero"><div className="pill"><Sparkles size={15}/> AI-powered APK builder</div><h1>Turn your web app into an<br/><em>Android APK.</em></h1><p>Connect a GitHub project, let AI inspect the web app, configure the Android wrapper, and build a downloadable APK.</p></section>
-   <section className="steps">{steps.map((x,i)=><div className={i===step?'step active':i<step?'step done':'step'} key={x}><span>{i<step?<CheckCircle2 size={16}/>:i+1}</span>{x}</div>)}</section>
-   <section className="card">
-    {step===0&&<><div className="iconbox"><Github/></div><h2>Connect your GitHub project</h2><p>Web2APK AI will use GitHub only to read your selected project and run the Android build workflow. Tokens stay on the server.</p><button className="primary" onClick={next}>Connect GitHub <ArrowRight size={18}/></button></>}
-    {step===1&&<><h2>Select your web app</h2><p>Enter the GitHub repository you want to package.</p><label>Repository</label><input value={repo} onChange={e=>setRepo(e.target.value)} placeholder="owner/repository"/><button className="primary" disabled={!repo.trim()} onClick={next}>Continue <ArrowRight size={18}/></button></>}
-    {step===2&&<><div className="iconbox"><Sparkles/></div><h2>AI project analysis</h2><p>AI will detect the framework, build command, output directory, package configuration, and Android compatibility before building.</p><div className="analysis"><CheckCircle2/> Framework detection<br/><CheckCircle2/> Build configuration<br/><CheckCircle2/> Capacitor Android wrapper<br/><CheckCircle2/> Required permissions</div><button className="primary" onClick={next}>Analyze & Continue <ArrowRight size={18}/></button></>}
-    {step===3&&<><h2>Configure your APK</h2><p>These settings can be changed without rebuilding your web app UI.</p><label>App name</label><input value={appName} onChange={e=>setAppName(e.target.value)}/><label>Package ID</label><input value={packageId} onChange={e=>setPackageId(e.target.value.toLowerCase().replace(/[^a-z0-9.]/g,''))}/><div className="checks"><span>✓ Internet access</span><span>✓ File upload</span><span>✓ Camera ready</span></div><button className="primary" onClick={build}>{building?<><Loader2 className="spin"/> Building…</>:<>Build APK <ArrowRight size={18}/></>}</button></>}
-    {step===4&&<><div className="success"><CheckCircle2/></div><h2>APK build ready</h2><p>{built?'The MVP build pipeline is ready to be connected to GitHub Actions.':'Your APK build configuration is saved.'}</p><div className="buildinfo"><b>{appName}</b><span>{packageId}</span></div><button className="primary" disabled={!built}><Download size={18}/> Download APK</button></>}
-   </section>
-   <div className="trust"><ShieldCheck size={18}/><span>Security-first design: API keys and GitHub credentials are never placed in browser code.</span></div>
-  </main>
-  <footer>Web2APK AI · Built for simple, one-tap web-to-APK packaging</footer>
- </div>
+function App() {
+  const [step, setStep] = useState(0);
+  const [auth, setAuth] = useState({ loading: true, connected: false, user: null });
+  const [repos, setRepos] = useState([]);
+  const [reposLoading, setReposLoading] = useState(false);
+  const [repoError, setRepoError] = useState("");
+  const [selectedRepo, setSelectedRepo] = useState(null);
+  const [search, setSearch] = useState("");
+  const [appName, setAppName] = useState("My Web App");
+  const [packageId, setPackageId] = useState("com.web2apk.app");
+
+  const loadAuth = async () => {
+    try {
+      const res = await fetch("/api/auth/me", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setAuth({ loading: false, connected: !!data.authenticated, user: data.user || null });
+        if (data.authenticated) setStep(1);
+      } else {
+        setAuth({ loading: false, connected: false, user: null });
+      }
+    } catch {
+      setAuth({ loading: false, connected: false, user: null });
+    }
+  };
+
+  const loadRepos = async () => {
+    setReposLoading(true);
+    setRepoError("");
+    try {
+      const res = await fetch("/api/github/repos", { credentials: "include" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not load GitHub repositories.");
+      setRepos(data.repos || []);
+    } catch (e) {
+      setRepoError(e.message);
+    } finally {
+      setReposLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("github") === "connected") {
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+    const githubError = params.get("github_error");
+    if (githubError) {
+      setRepoError("GitHub connection was not completed: " + githubError);
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+    loadAuth();
+  }, []);
+
+  useEffect(() => {
+    if (auth.connected && step === 1) loadRepos();
+  }, [auth.connected, step]);
+
+  const filteredRepos = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return repos;
+    return repos.filter(r =>
+      r.fullName.toLowerCase().includes(q) ||
+      (r.description || "").toLowerCase().includes(q)
+    );
+  }, [repos, search]);
+
+  const connect = () => {
+    window.location.href = "/api/auth/github/login";
+  };
+
+  const logout = async () => {
+    await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+    setAuth({ loading: false, connected: false, user: null });
+    setRepos([]);
+    setSelectedRepo(null);
+    setStep(0);
+  };
+
+  const selectRepo = (repo) => {
+    setSelectedRepo(repo);
+    setAppName(repo.name || "My Web App");
+    const safeName = (repo.name || "app").toLowerCase().replace(/[^a-z0-9]+/g, "");
+    setPackageId("com.web2apk." + (safeName || "app"));
+  };
+
+  const continueRepo = () => {
+    if (selectedRepo) setStep(2);
+  };
+
+  return (
+    <div className="app">
+      <header>
+        <div className="brand">
+          <div className="logo"><Smartphone size={22} /></div>
+          <div><b>Web2APK AI</b><span>AI Web App → Android APK</span></div>
+        </div>
+        {auth.connected ? (
+          <div className="account">
+            {auth.user?.avatar && <img className="avatar" src={auth.user.avatar} alt="" />}
+            <span className="account-name">{auth.user?.name || auth.user?.login}</span>
+            <button className="github secondary" onClick={logout}><LogOut size={16} /> Sign out</button>
+          </div>
+        ) : (
+          <button className="github" onClick={connect}><Github size={18} /> Connect GitHub</button>
+        )}
+      </header>
+
+      <main>
+        <section className="hero">
+          <div className="pill"><Sparkles size={15} /> AI-powered APK builder</div>
+          <h1>Turn your web app into an<br /><em>Android APK.</em></h1>
+          <p>Connect a GitHub project, select your web app, let AI inspect it, configure the Android wrapper, and build a downloadable APK.</p>
+        </section>
+
+        <section className="steps">
+          {steps.map((x, i) => (
+            <div className={i === step ? "step active" : i < step ? "step done" : "step"} key={x}>
+              <span>{i < step ? <CheckCircle2 size={16} /> : i + 1}</span>{x}
+            </div>
+          ))}
+        </section>
+
+        <section className="card">
+          {auth.loading && (
+            <div className="loading-state"><Loader2 className="spin" size={25} /><p>Checking GitHub connection…</p></div>
+          )}
+
+          {!auth.loading && step === 0 && !auth.connected && (
+            <>
+              <div className="iconbox"><Github /></div>
+              <h2>Connect your GitHub project</h2>
+              <p>Sign in with GitHub. Web2APK AI will use your authorized GitHub connection to list repositories and work with the project you select.</p>
+              <button className="primary" onClick={connect}>Connect GitHub <ArrowRight size={18} /></button>
+            </>
+          )}
+
+          {!auth.loading && step === 1 && auth.connected && (
+            <>
+              <div className="section-head">
+                <div><h2>Select your web app</h2><p>Choose a repository from your GitHub account.</p></div>
+                <button className="icon-button" onClick={loadRepos} disabled={reposLoading} title="Refresh repositories"><RefreshCw className={reposLoading ? "spin" : ""} size={18} /></button>
+              </div>
+              <div className="searchbox"><Search size={18} /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search repositories…" /></div>
+              {repoError && <div className="error"><AlertCircle size={17} /> {repoError}</div>}
+              {reposLoading ? (
+                <div className="loading-state"><Loader2 className="spin" size={25} /><p>Loading your repositories…</p></div>
+              ) : filteredRepos.length ? (
+                <div className="repo-list">
+                  {filteredRepos.map(repo => (
+                    <button key={repo.id} className={"repo-item " + (selectedRepo?.id === repo.id ? "selected" : "")} onClick={() => selectRepo(repo)}>
+                      <span className="repo-main"><b>{repo.fullName}</b><small>{repo.description || "No description"}</small></span>
+                      <span className="repo-meta">{repo.language || "Web"} {repo.private ? "· Private" : "· Public"}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty"><Github size={24} /><p>No repositories found.</p></div>
+              )}
+              <button className="primary" disabled={!selectedRepo} onClick={continueRepo}>Continue <ArrowRight size={18} /></button>
+            </>
+          )}
+
+          {step === 2 && (
+            <>
+              <div className="iconbox"><Sparkles /></div>
+              <h2>AI project analysis</h2>
+              <p>Selected project: <b>{selectedRepo?.fullName || "your repository"}</b></p>
+              <div className="analysis">
+                <div><CheckCircle2 /> Framework detection</div>
+                <div><CheckCircle2 /> Build configuration</div>
+                <div><CheckCircle2 /> Capacitor Android wrapper</div>
+                <div><CheckCircle2 /> Required permissions</div>
+              </div>
+              <button className="primary" onClick={() => setStep(3)}>Analyze & Continue <ArrowRight size={18} /></button>
+            </>
+          )}
+
+          {step === 3 && (
+            <>
+              <h2>Configure your APK</h2>
+              <p>These Android settings are applied to the wrapper; your original web app UI is not rebuilt.</p>
+              <label>App name</label>
+              <input value={appName} onChange={e => setAppName(e.target.value)} />
+              <label>Package ID</label>
+              <input value={packageId} onChange={e => setPackageId(e.target.value.toLowerCase().replace(/[^a-z0-9.]/g, ""))} />
+              <div className="checks"><span>✓ Internet access</span><span>✓ File upload</span><span>✓ Camera ready</span></div>
+              <button className="primary" onClick={() => setStep(4)}>Start Android Build <ArrowRight size={18} /></button>
+            </>
+          )}
+
+          {step === 4 && (
+            <>
+              <div className="success"><CheckCircle2 /></div>
+              <h2>Build configuration ready</h2>
+              <p>The selected repository and Android settings are ready for the GitHub Actions build pipeline.</p>
+              <div className="buildinfo"><b>{appName}</b><span>{packageId}</span></div>
+              <button className="primary" disabled><Download size={18} /> APK build pipeline coming next</button>
+            </>
+          )}
+        </section>
+
+        <div className="trust"><ShieldCheck size={18} /><span>Security-first design: GitHub tokens and API keys stay on the server and are never placed in browser code.</span></div>
+      </main>
+      <footer>Web2APK AI · GitHub → AI analysis → Capacitor → Android APK</footer>
+    </div>
+  );
 }
-createRoot(document.getElementById('root')).render(<App/>);
+
+createRoot(document.getElementById("root")).render(<App />);
