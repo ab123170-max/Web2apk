@@ -90,7 +90,10 @@ function BuildStep({ selectedRepo, appName, packageId, outputDirectory }) {
         {build.htmlUrl && <a className="secondary-link" href={build.htmlUrl} target="_blank" rel="noreferrer">View GitHub Actions <ExternalLink size={15} /></a>}
 
         {build.artifact?.id && !build.artifact.expired && build.conclusion === "success" && (
-          <p className="success-note"><CheckCircle2 size={17} /> APK artifact is ready in GitHub Actions.</p>
+          <>
+            <p className="success-note"><CheckCircle2 size={17} /> APK artifact is ready.</p>
+            <a className="primary download-link" href={`/api/build/download?repo=${encodeURIComponent(selectedRepo.fullName)}&artifactId=${build.artifact.id}`}><Download size={18} /> Download APK</a>
+          </>
         )}
 
         {build.status === "completed" && build.conclusion !== "success" && (
