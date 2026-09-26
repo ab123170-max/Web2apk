@@ -1,37 +1,8 @@
-import { githubRequest } from "../_lib/github.js";
-import { getSession } from "../_lib/session.js";
-
-export default async function handler(req, res) {
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
-  const session = await getSession(req);
-  if (!session?.accessToken) return res.status(401).json({ error: "Not connected to GitHub." });
-
-  const { fullName } = req.body || {};
-  if (!fullName || !fullName.includes("/")) return res.status(400).json({ error: "Repository is required." });
-  const [owner, repo] = fullName.split("/", 2);
-
-  try {
-    const runs = await githubRequest(
-      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/actions/runs?per_page=10`,
-      session.accessToken
-    );
-    const run = (runs.workflow_runs || []).find(r => r.name === "Web2APK Android Build");
-    if (!run) return res.status(200).json({ status: "not_found" });
-
-    const artifacts = run.status === "completed" && run.conclusion === "success"
-      ? await githubRequest(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/actions/runs/${run.id}/artifacts`, session.accessToken)
-      : { artifacts: [] };
-
-    const artifact = (artifacts.artifacts || []).find(a => a.name === "web2apk-debug-apk");
-
-    res.status(200).json({
-      status: run.status,
-      conclusion: run.conclusion,
-      runId: run.id,
-      htmlUrl: run.html_url,
-      artifact: artifact ? { id: artifact.id, name: artifact.name, expired: artifact.expired } : null
-    });
-  } catch (e) {
-    res.status(e.status || 500).json({ error: e.message || "Could not read build status." });
-  }
+export default async function handler(req,res){
+  if(req.method!=="POST") return res.status(405).json({error:"Method not allowed"});
+  const base=process.env.BUILD_SERVER_URL,key=process.env.BUILD_SERVER_KEY;
+  if(!base||!key) return res.status(503).json({error:"Build server is not configured."});
+  const {jobId}=req.body||{};
+  if(!/^[0-9a-f-]{36}$/.test(String(jobId||""))) return res.status(400).json({error:"Invalid build ID."});
+  try{const r=await fetch(base.replace(/\\/$/,"")+"/builds/"+jobId,{headers:{"x-build-key":key}});const data=await r.json().catch(()=>({}));res.status(r.status).json(data);}catch{res.status(502).json({error:"Build server is unreachable."});}
 }
