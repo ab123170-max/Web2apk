@@ -1,38 +1,8 @@
-import { githubRequest } from "../_lib/github.js";
-import { getSession } from "../_lib/session.js";
-
-export default async function handler(req, res) {
-  if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
-  const session = await getSession(req);
-  if (!session?.accessToken) return res.status(401).json({ error: "Not connected to GitHub." });
-
-  const repoFullName = String(req.query?.repo || "");
-  const artifactId = Number(req.query?.artifactId || 0);
-  if (!repoFullName.includes("/")) return res.status(400).json({ error: "Repository is required." });
-  if (!Number.isInteger(artifactId) || artifactId <= 0) return res.status(400).json({ error: "Artifact is required." });
-
-  const [owner, repo] = repoFullName.split("/", 2);
-  try {
-    const artifact = await githubRequest(
-      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/actions/artifacts/${artifactId}`,
-      session.accessToken
-    );
-    if (artifact.expired) return res.status(410).json({ error: "This APK artifact has expired." });
-
-    const response = await fetch(artifact.archive_download_url, {
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${session.accessToken}`,
-        "X-GitHub-Api-Version": "2022-11-28"
-      }
-    });
-    if (!response.ok) return res.status(response.status).json({ error: "Could not download the APK artifact." });
-
-    const buffer = Buffer.from(await response.arrayBuffer());
-    res.setHeader("Content-Type", "application/zip");
-    res.setHeader("Content-Disposition", 'attachment; filename="web2apk-apk.zip"');
-    res.status(200).end(buffer);
-  } catch (e) {
-    res.status(e.status || 500).json({ error: e.message || "APK download failed." });
-  }
+export default async function handler(req,res){
+  if(req.method!=="GET") return res.status(405).json({error:"Method not allowed"});
+  const base=process.env.BUILD_SERVER_URL,key=process.env.BUILD_SERVER_KEY;
+  if(!base||!key) return res.status(503).json({error:"Build server is not configured."});
+  const jobId=String(req.query?.jobId||""),type=String(req.query?.type||"apk");
+  if(!/^[0-9a-f-]{36}$/.test(jobId)||!["apk","aab"].includes(type)) return res.status(400).json({error:"Invalid download request."});
+  try{const r=await fetch(base.replace(/\\/$/,"")+"/builds/"+jobId+"/"+type,{headers:{"x-build-key":key}});if(!r.ok)return res.status(r.status).json({error:"Artifact is not ready."});res.setHeader("Content-Type",type==="apk"?"application/vnd.android.package-archive":"application/octet-stream");res.setHeader("Content-Disposition",'attachment; filename="web2apk-'+type+'.'+type+'"');res.status(200).end(Buffer.from(await r.arrayBuffer()));}catch{res.status(502).json({error:"Build server is unreachable."});}
 }
